@@ -1,0 +1,93 @@
+---
+
+networks:
+  llm-net:
+    driver: "bridge"
+
+volumes:
+  postgres_data:
+
+services:
+
+  # Run local model with vLLM
+  vllm:
+    image: "vllm/vllm-openai:latest-cu130"
+    container_name: "agent-vllm"
+    restart: "unless-stopped"
+    networks:
+      - "llm-net"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - "/mnt/ai/.cache/huggingface-container:/root/.cache/huggingface"
+    env_file: "../secrets/vllm/.env"
+    environment: {}
+    command: >-
+      --host "0.0.0.0"
+      --port 8000
+      --model "Qwen/Qwen2.5-3B-Instruct"
+      --dtype "auto"
+      --gpu-memory-utilization 0.95
+      --max-num-seqs 32
+      --max_model_len 16384
+    # "host" mode is faster but is not supported with user namespace remapping
+    ipc: "private"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: "nvidia"
+              count: "all"
+              capabilities: ["gpu"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: "10s"
+      timeout: "3s"
+      retries: 3
+
+  # Database for LiteLLM
+  postgres:
+    image: "postgres:15"
+    container_name: "agent-postgres"
+    restart: "unless-stopped"
+    env_file: "../secrets/postgres/.env"
+    environment: {}
+    volumes:
+      - "postgres_data:/var/lib/postgresql/data"
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      # grep -q "$(printf "%x\n" '5432')" /proc/net/tcp
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: "5s"
+      timeout: "3s"
+      retries: 3
+
+  # Run LiteLLM MCP router
+  litellm:
+    image: "ghcr.io/berriai/litellm:main-latest"
+    container_name: "agent-litellm"
+    networks:
+      - "llm-net"
+    env_file: "../secrets/litellm/.env"
+    environment: {}
+    command: >-
+      --config "/app/config.yaml"
+      --port 4000
+      --host "0.0.0.0"
+    volumes:
+      - "./litellm/config.yaml:/app/config.yaml:ro"
+    ports:
+      - "127.0.0.1:4000:4000"
+    restart: "unless-stopped"
+    depends_on:
+      - "postgres"
+    healthcheck:
+      # grep -Ei "[:][0]*$(printf "%x\n" '4000')\s" /proc/net/tcp
+      # printf "%x\n" '4000' -> fa0
+      test: ["CMD", "grep", "-q", "-i", ":0fa0", "/proc/net/tcp"]
+      interval: "5s"
+      timeout: "3s"
+      retries: 3
+
+...
