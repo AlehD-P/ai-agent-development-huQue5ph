@@ -11,7 +11,8 @@ services:
 
   # Run local model with vLLM
   vllm:
-    image: "vllm/vllm-openai:latest-cu130"
+    # image: "vllm/vllm-openai:latest-cu130"
+    image: "vllm/vllm-openai:gemma4-cu130"
     container_name: "agent-vllm"
     restart: "unless-stopped"
     networks:
@@ -23,13 +24,28 @@ services:
     env_file: "../secrets/vllm/.env"
     environment: {}
     command: >-
+      --model "google/gemma-4-E2B-it"
       --host "0.0.0.0"
       --port 8000
-      --model "Qwen/Qwen2.5-3B-Instruct"
-      --dtype "auto"
-      --gpu-memory-utilization 0.95
-      --max-num-seqs 32
-      --max_model_len 16384
+      --quantization "bitsandbytes"
+      --kv-cache-dtype "fp8_e4m3"
+      --gpu-memory-utilization 0.97
+      --enforce-eager
+      --cpu-offload-gb 8
+      --max-model-len 8192
+      --max-num-seqs 4
+      --enable-auto-tool-choice
+      --tool-call-parser gemma4
+      --reasoning-parser gemma4
+    # command: >-
+    #   --host "0.0.0.0"
+    #   --port 8000
+    #   --model "Qwen/Qwen2.5-3B-Instruct"
+    #   --dtype "auto"
+    #   --gpu-memory-utilization 0.95
+    #   --kv-cache-dtype "fp8"
+    #   --max-num-seqs 32
+    #   --max_model_len 16384
     # "host" mode is faster but is not supported with user namespace remapping
     ipc: "private"
     deploy:
